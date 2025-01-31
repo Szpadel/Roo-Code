@@ -10,7 +10,7 @@ import {
 import { ApiHandler, SingleCompletionHandler } from "../index"
 import { convertToOpenAiMessages } from "../transform/openai-format"
 import { convertToR1Format } from "../transform/r1-format"
-import { ApiStream } from "../transform/stream"
+import { ApiStream, ApiStreamChunk } from "../transform/stream"
 
 export class OpenAiHandler implements ApiHandler, SingleCompletionHandler {
 	protected options: ApiHandlerOptions
@@ -59,15 +59,15 @@ export class OpenAiHandler implements ApiHandler, SingleCompletionHandler {
 				requestOptions.max_tokens = modelInfo.maxTokens
 			}
 
+			const thinkingParser = new ThinkingTokenSeparator()
 			const stream = await this.client.chat.completions.create(requestOptions)
 
 			for await (const chunk of stream) {
 				const delta = chunk.choices[0]?.delta ?? {}
 
 				if (delta.content) {
-					yield {
-						type: "text",
-						text: delta.content,
+					for (const parsedChunk of thinkingParser.parseChunk(delta.content)) {
+						yield parsedChunk
 					}
 				}
 
@@ -101,9 +101,9 @@ export class OpenAiHandler implements ApiHandler, SingleCompletionHandler {
 
 			const response = await this.client.chat.completions.create(requestOptions)
 
-			yield {
-				type: "text",
-				text: response.choices[0]?.message.content || "",
+			const thinkingParser = new ThinkingTokenSeparator()
+			for (const parsedChunk of thinkingParser.parseChunk(response.choices[0]?.message.content || "")) {
+				yield parsedChunk
 			}
 			yield {
 				type: "usage",
@@ -135,5 +135,53 @@ export class OpenAiHandler implements ApiHandler, SingleCompletionHandler {
 			}
 			throw error
 		}
+	}
+}
+
+class ThinkingTokenSeparator {
+	private insideThinking = false
+	private buffer = ""
+
+	public parseChunk(chunk: string): ApiStreamChunk[] {
+		let parsed: ApiStreamChunk[] = []
+		chunk = this.buffer + chunk
+		this.buffer = ""
+
+		const parseTag = (tag: string, thinking: boolean) => {
+			if (chunk.indexOf(tag) !== -1) {
+				const [before, after] = chunk.split(tag)
+				if (before.length > 0) {
+					parsed.push({ type: thinking ? "text" : "reasoning", text: before })
+				}
+				chunk = after
+				this.insideThinking = thinking
+			} else if (this.endsWithIncompleteString(chunk, tag)) {
+				this.buffer = chunk
+				chunk = ""
+			}
+		}
+
+		if (!this.insideThinking) {
+			parseTag("<think>", true)
+		}
+		if (this.insideThinking) {
+			parseTag("</think>", false)
+		}
+
+		if (chunk.length > 0) {
+			parsed.push({ type: this.insideThinking ? "reasoning" : "text", text: chunk })
+		}
+
+		return parsed
+	}
+
+	private endsWithIncompleteString(chunk: string, str: string): boolean {
+		// iterate from end of the str and check if we start matching from any point
+		for (let i = str.length - 1; i >= 1; i--) {
+			if (chunk.endsWith(str.slice(0, i))) {
+				return true
+			}
+		}
+		return false
 	}
 }
