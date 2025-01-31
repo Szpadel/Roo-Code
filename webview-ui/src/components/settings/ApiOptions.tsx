@@ -921,7 +921,7 @@ const ApiOptions = ({ apiErrorMessage, modelIdErrorMessage }: ApiOptionsProps) =
 													</Checkbox>
 													<i
 														className="codicon codicon-info"
-														title="Enable if the model outputs &lt;Think&gt; &lt;/Think&gt; tags in a chat response. Some Deek Seek R1 providers output tokens with these tags."
+														title="Enable if the model outputs &lt;Think&gt; &lt;/Think&gt; tags in a chat response. Some DeepSeek R1 providers output tokens with these tags."
 														style={{
 															fontSize: "12px",
 															color: "var(--vscode-descriptionForeground)",
@@ -938,7 +938,7 @@ const ApiOptions = ({ apiErrorMessage, modelIdErrorMessage }: ApiOptionsProps) =
 														lineHeight: "1.4",
 													}}>
 													Enable if the model outputs &lt;Think&gt; &lt;/Think&gt;tags in a
-													chat response. Some Deek Seek R1 providers output tokens with these
+													chat response. Some DeepSeek R1 providers output tokens with these
 													tags.
 												</p>
 											</div>
