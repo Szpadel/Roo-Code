@@ -40,6 +40,9 @@ export class OpenAiHandler implements ApiHandler, SingleCompletionHandler {
 		const modelId = this.options.openAiModelId ?? ""
 
 		const deepseekReasoner = modelId.includes("deepseek-reasoner")
+		const thinkingParser = modelInfo.thinkTokensInResponse
+		? new ThinkingTokenSeparator()
+		: new PassThroughTokenSeparator()
 
 		if (this.options.openAiStreamingEnabled ?? true) {
 			const systemMessage: OpenAI.Chat.ChatCompletionSystemMessageParam = {
@@ -59,9 +62,8 @@ export class OpenAiHandler implements ApiHandler, SingleCompletionHandler {
 				requestOptions.max_tokens = modelInfo.maxTokens
 			}
 
-			const thinkingParser = new ThinkingTokenSeparator()
 			const stream = await this.client.chat.completions.create(requestOptions)
-
+			
 			for await (const chunk of stream) {
 				const delta = chunk.choices[0]?.delta ?? {}
 
@@ -84,6 +86,7 @@ export class OpenAiHandler implements ApiHandler, SingleCompletionHandler {
 						outputTokens: chunk.usage.completion_tokens || 0,
 					}
 				}
+				
 			}
 		} else {
 			// o1 for instance doesnt support streaming, non-1 temp, or system prompt
@@ -101,7 +104,6 @@ export class OpenAiHandler implements ApiHandler, SingleCompletionHandler {
 
 			const response = await this.client.chat.completions.create(requestOptions)
 
-			const thinkingParser = new ThinkingTokenSeparator()
 			for (const parsedChunk of thinkingParser.parseChunk(response.choices[0]?.message.content || "")) {
 				yield parsedChunk
 			}
@@ -138,6 +140,11 @@ export class OpenAiHandler implements ApiHandler, SingleCompletionHandler {
 	}
 }
 
+class PassThroughTokenSeparator {
+	public parseChunk(chunk: string): ApiStreamChunk[] {
+		return [{ type: "text", text: chunk }]
+	}
+}
 class ThinkingTokenSeparator {
 	private insideThinking = false
 	private buffer = ""
