@@ -41,8 +41,8 @@ export class OpenAiHandler implements ApiHandler, SingleCompletionHandler {
 
 		const deepseekReasoner = modelId.includes("deepseek-reasoner")
 		const thinkingParser = modelInfo.thinkTokensInResponse
-		? new ThinkingTokenSeparator()
-		: new PassThroughTokenSeparator()
+			? new ThinkingTokenSeparator()
+			: new PassThroughTokenSeparator()
 
 		if (this.options.openAiStreamingEnabled ?? true) {
 			const systemMessage: OpenAI.Chat.ChatCompletionSystemMessageParam = {
@@ -63,7 +63,7 @@ export class OpenAiHandler implements ApiHandler, SingleCompletionHandler {
 			}
 
 			const stream = await this.client.chat.completions.create(requestOptions)
-			
+
 			for await (const chunk of stream) {
 				const delta = chunk.choices[0]?.delta ?? {}
 
@@ -86,7 +86,10 @@ export class OpenAiHandler implements ApiHandler, SingleCompletionHandler {
 						outputTokens: chunk.usage.completion_tokens || 0,
 					}
 				}
-				
+			}
+
+			for (const parsedChunk of thinkingParser.flush()) {
+				yield parsedChunk
 			}
 		} else {
 			// o1 for instance doesnt support streaming, non-1 temp, or system prompt
@@ -104,7 +107,7 @@ export class OpenAiHandler implements ApiHandler, SingleCompletionHandler {
 
 			const response = await this.client.chat.completions.create(requestOptions)
 
-			for (const parsedChunk of thinkingParser.parseChunk(response.choices[0]?.message.content || "")) {
+			for (const parsedChunk of thinkingParser.parseChunk(response.choices[0]?.message.content || "", true)) {
 				yield parsedChunk
 			}
 			yield {
@@ -144,12 +147,16 @@ class PassThroughTokenSeparator {
 	public parseChunk(chunk: string): ApiStreamChunk[] {
 		return [{ type: "text", text: chunk }]
 	}
+
+	public flush(): ApiStreamChunk[] {
+		return []
+	}
 }
 class ThinkingTokenSeparator {
 	private insideThinking = false
 	private buffer = ""
 
-	public parseChunk(chunk: string): ApiStreamChunk[] {
+	public parseChunk(chunk: string, flush: boolean = false): ApiStreamChunk[] {
 		let parsed: ApiStreamChunk[] = []
 		chunk = this.buffer + chunk
 		this.buffer = ""
@@ -175,6 +182,11 @@ class ThinkingTokenSeparator {
 			parseTag("</think>", false)
 		}
 
+		if (flush) {
+			chunk = this.buffer + chunk
+			this.buffer = ""
+		}
+
 		if (chunk.length > 0) {
 			parsed.push({ type: this.insideThinking ? "reasoning" : "text", text: chunk })
 		}
@@ -190,5 +202,9 @@ class ThinkingTokenSeparator {
 			}
 		}
 		return false
+	}
+
+	public flush(): ApiStreamChunk[] {
+		return this.parseChunk("", true)
 	}
 }
